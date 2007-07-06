@@ -128,7 +128,12 @@ sChar = r'[^"\\\n\r]|{escapeSequence}'
 charValue = r"\'{cChar}\'"
 #t_stringValue = r'\"{sChar}*\"'
 ws = r'[ \t]+'
-t_stringValue = r'1*("*{sChar}")'
+#t_stringValue = r'1*("*{sChar}")'
+t_stringValue = r'"(\\"|[^"])*"'
+
+def t_CLASS(t):
+    r'class'
+    return t
 
 t_LPAREN = r'\('
 t_RPAREN = r'\)'
@@ -148,7 +153,7 @@ t_FALSE = r'false'
 t_ANY = r'any'
 t_AS = r'as'
 t_ASSOCIATION = r'association'
-t_CLASS = r'class'
+#t_CLASS = r'class'
 t_DISABLEOVERRIDE = r'disableoverride'
 t_DT_BOOL = r'boolean'
 t_DT_CHAR16 = r'char16'
