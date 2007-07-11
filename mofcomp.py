@@ -33,6 +33,7 @@ reserved = {
     'boolean':'DT_BOOL',
     'char16':'DT_CHAR16',
     'datetime':'DT_DATETIME',
+    'pragma':'PRAGMA',
     'real32':'DT_REAL32',
     'real64':'DT_REAL64',
     'sint16':'DT_SINT16',
@@ -53,7 +54,6 @@ reserved = {
     'null':'NULL',
     'of':'OF',
     'parameter':'PARAMETER',
-    '#pragma':'PRAGMA',
     'property':'PROPERTY',
     'qualifier':'QUALIFIER',
     'ref':'REF',
@@ -111,6 +111,7 @@ def t_MCOMMENT(t):
     r' /\*(.|\n)*?\*/'
     t.lineno += t.value.count('\n')
 
+
 t_binaryValue = r'[+-]?[01]+[bB]'
 t_octalValue = r'[+-]?0[0-7]+'
 t_decimalValue = r'[+-]?([1-9][0-9]*|0)'
@@ -127,9 +128,7 @@ charValue = r"\'{cChar}\'"
 #t_stringValue = r'1*("*{sChar}")'
 t_stringValue = r'"(\\"|[^"])*"'
 
-literals = '(){};[],$:='
-
-t_PRAGMA = r'\#pragma'
+literals = '#(){};[],$:='
 
 def t_IDENTIFIER(t):
     r'([a-zA-Z_]|{utf8Char})([0-9a-zA-Z_]|{utf8Char})*'
@@ -155,20 +154,20 @@ def p_mofSpecification(p):
 
 def p_mofProductionList(p):
     """mofProductionList : empty
-                           | mofProductionList mofProduction
+                         | mofProductionList mofProduction
                            """
 
 def p_mofProduction(p):
     """mofProduction : compilerDirective
-                      | classDeclaration
-                      | assocDeclaration
-                      | indicDeclaration
-                      | qualifierDeclaration
-                      | instanceDeclaration
-                      """
+                     | classDeclaration
+                     | assocDeclaration
+                     | indicDeclaration
+                     | qualifierDeclaration
+                     | instanceDeclaration
+                     """
 
 def p_compilerDirective(p): 
-    """compilerDirective : PRAGMA pragmaName '(' pragmaParameter ')'"""
+    """compilerDirective : '#' PRAGMA pragmaName '(' pragmaParameter ')'"""
 
 def p_pragmaName(p):
     """pragmaName : identifier"""
