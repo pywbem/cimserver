@@ -23,6 +23,7 @@ import sys
 import os
 import ply.lex as lex
 import ply.yacc as yacc
+from ply.lex import TOKEN
 
 reserved = {
     'any':'ANY',
@@ -100,8 +101,8 @@ utf8_4_1 = r'\xF0[\x90-\xBF][\x80-\xBF][\x80-\xBF]'
 utf8_4_2 = r'[\xF1-\xF3][\x80-\xBF][\x80-\xBF][\x80-\xBF]'
 utf8_4_3 = r'\xF4[\x80-\x8F][\x80-\xBF][\x80-\xBF]'
 
-utf8Char = r'{utf8_2}|{utf8_3_1}|{utf8_3_2}|{utf8_3_3}|{utf8_3_4}|{utf8_4_1}|'\
-        '{utf8_4_2}|{utf8_4_3}'
+utf8Char = r'(%s)|(%s)|(%s)|(%s)|(%s)|(%s)|(%s)|(%s)' % (utf8_2, utf8_3_1,
+        utf8_3_2, utf8_3_3, utf8_3_4, utf8_4_1, utf8_4_2, utf8_4_3)
 
 def t_COMMENT(t):
     r'//.*'
@@ -115,23 +116,23 @@ def t_MCOMMENT(t):
 t_binaryValue = r'[+-]?[01]+[bB]'
 t_octalValue = r'[+-]?0[0-7]+'
 t_decimalValue = r'[+-]?([1-9][0-9]*|0)'
-t_hexValue = r'[+-]?"0"[xX][0-9a-fA-F]+'
-t_floatValue = r'[+-]?[0-9]*"."[0-9]+([eE][+-]?[0-9]+)?'
+t_hexValue = r'[+-]?0[xX][0-9a-fA-F]+'
+t_floatValue = r'[+-]?[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?'
 
 simpleEscape = r"""[bfnrt'"\\]"""
-hexEscape = r'"x"[0-9a-fA-F]{1,4}'
-escapeSequence = r'[\\]({simpleEscape}|{hexEscape})'
-cChar = r"[^'\\\n\r]|{escapeSequence}"
-sChar = r'[^"\\\n\r]|{escapeSequence}'
-charValue = r"\'{cChar}\'"
-#t_stringValue = r'\"{sChar}*\"'
-#t_stringValue = r'1*("*{sChar}")'
-t_stringValue = r'"(\\"|[^"])*"'
+hexEscape = r'x[0-9a-fA-F]{1,4}'
+escapeSequence = r'[\\]((%s)|(%s))' % (simpleEscape, hexEscape)
+cChar = r"[^'\\\n\r]|(%s)" % escapeSequence
+sChar = r'[^"\\\n\r]|(%s)' % escapeSequence
+charValue = r"'%s'" % cChar
+t_stringValue = r'"(%s)*"' % sChar
 
 literals = '#(){};[],$:='
 
+identifier_re = r'([a-zA-Z_]|(%s))([0-9a-zA-Z_]|(%s))*' % (utf8Char, utf8Char)
+
+@TOKEN(identifier_re)
 def t_IDENTIFIER(t):
-    r'([a-zA-Z_]|{utf8Char})([0-9a-zA-Z_]|{utf8Char})*'
     t.type = reserved.get(t.value.lower(),'IDENTIFIER') # check for reserved word
     return t
 
@@ -394,7 +395,10 @@ def p_qualifierDeclaration(p):
                             """
 
 def p_qualifierName(p):
-    """qualifierName : identifier"""
+    """qualifierName : identifier
+                     | ASSOCIATION
+                     | INDICATION
+                     """
 
 def p_qualifierType(p):
     """qualifierType : ':' dataType
@@ -461,13 +465,11 @@ def p_identifier(p):
     """identifier : IDENTIFIER
                   | ANY
                   | AS
-                  | ASSOCIATION
                   | CLASS
                   | DISABLEOVERRIDE
                   | dataType 
                   | ENABLEOVERRIDE
                   | FLAVOR
-                  | INDICATION
                   | INSTANCE
                   | METHOD
                   | OF
@@ -482,6 +484,8 @@ def p_identifier(p):
                   | TOSUBCLASS
                   | TRANSLATABLE
                   """
+                  #| ASSOCIATION
+                  #| INDICATION
 
 def p_empty(p):
     'empty :'
@@ -506,6 +510,8 @@ yacc.yacc(debug=1)
 
 
 if __name__ == '__main__':
+    #lex.runmain()
+    #sys.exit(0)
     global mof
     for w in os.walk('/usr/share/mof'):
         for f in w[2]:
