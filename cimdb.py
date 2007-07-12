@@ -1,5 +1,4 @@
 #
-# (C) Copyright 2003-2007 Hewlett-Packard Development Company, L.P.
 # (C) Copyright 2006-2007 Novell, Inc. 
 #
 # This program is free software; you can redistribute it and/or modify

@@ -1,5 +1,4 @@
 #
-# (C) Copyright 2003-2007 Hewlett-Packard Development Company, L.P.
 # (C) Copyright 2006-2007 Novell, Inc. 
 #
 # This program is free software; you can redistribute it and/or modify
@@ -25,6 +24,7 @@ import ply.lex as lex
 import ply.yacc as yacc
 from ply.lex import TOKEN
 import pywbem
+import cimdb
 
 reserved = {
     'any':'ANY',
@@ -209,11 +209,64 @@ def p_classDeclaration(p):
                         | qualifierList CLASS className alias '{' classFeatureList '}' ';'
                         | qualifierList CLASS className alias superClass '{' classFeatureList '}' ';'
                         """
+    superclass = None
+    alias = None
+    quals = []
+    if isinstance(p[1], basestring): # no class qualifiers
+        cname = p[2]
+        if p[3][0] == '$': # alias present
+            alias = p[3][1:]
+            if p[4] == '{': # no superclass
+                cfl = p[5]
+            else: # superclass
+                superclass = p[4]
+                cfl = p[6]
+        else: # no alias
+            if p[3] == '{': # no superclass
+                cfl = p[4]
+            else: # superclass
+                superclass = p[3]
+                cfl = p[5]
+    else: # class qualifiers
+        quals = p[1]
+        cname = p[3]
+        if p[4][0] == '$': # alias present
+            alias = p[4][1:]
+            if p[5] == '{': # no superclass
+                cfl = p[6]
+            else: # superclass
+                superclass = p[5]
+                cfl = p[7]
+        else: # no alias
+            if p[4] == '{': # no superclass
+                cfl = p[5]
+            else: # superclass
+                superclass = p[4]
+                cfl = p[6]
+    quals = dict([(x.name, x) for x in quals])
+    methods = {}
+    props = {}
+    for item in cfl:
+        item.class_origin = cname
+        if isinstance(item, pywbem.CIMMethod):
+            methods[item.name] = item
+        else:
+            props[item.name] = item
+    p[0] = pywbem.CIMClass(cname, properties=props, methods=methods, 
+            superclass=superclass, qualifiers=quals)
+    # TODO make sure quals is a dict, not list. 
+    # TODO store alias. 
+    # TODO process class p[0]. 
+    print p[0]
 
 def p_classFeatureList(p):
     """classFeatureList : empty
                         | classFeatureList classFeature
                         """
+    if len(p) == 2:
+        p[0] = []
+    else:
+        p[0] = p[1] + [p[2]]
 
 def p_assocDeclaration(p):
     """assocDeclaration : '[' ASSOCIATION qualifierListEmpty ']' CLASS className '{' associationFeatureList '}' ';'
@@ -257,7 +310,7 @@ def p_alias(p):
 
 def p_aliasIdentifier(p):
     """aliasIdentifier : '$' identifier"""
-    p[0] = p[2]
+    p[0] = '$%s' % p[2]
 
 def p_superClass(p):
     """superClass : ':' className"""
@@ -294,7 +347,22 @@ def p_qualifier(p):
     elif len(p) == 5:
         qval = p[2]
         flavorlist = p[4]
-    # TODO build qualifier
+    qt = _get_qualifier_decl(p.parser.ns, qname)
+    if qval is None: 
+        qval = qt.value # default value
+    propagated = True # 'RESTRICTED' in flavorlist or qt.flavors['RESTRICTED']
+    overridable = True # 'ENABLEOVERRIDE' in flavorlist or qt.flavors['ENABLEOVERRIDE']
+    if 'DISABLEOVERRIDE' in flavorlist:
+        overridable = False
+    tosubclass = True # 'TOSUBCLASS' in flavorlist or qt.flavors['TOSUBCLASS']
+    toinstance = True # TODO ???
+    translatable = True # 'TRANSLATABLE' in flavorlist or qt.flavors['TRANSLATABLE']
+    if qval is not None: 
+        qval = pywbem.tocimobj(qt.type, qval)
+    p[0] = pywbem.CIMQualifier(qname, qval, type=qt.type, 
+            propagated=propagated, overridable=overridable, 
+            tosubclass=tosubclass, toinstance=toinstance, 
+            translatable=translatable)
 
 def p_flavorList(p):
     """flavorList : flavor
@@ -324,15 +392,56 @@ def p_flavor(p):
     p[0] = p[1].upper()
 
 def p_propertyDeclaration(p):
-    """propertyDeclaration : dataType propertyName ';'
-                           | dataType propertyName defaultValue ';'
-                           | dataType propertyName array ';'
-                           | dataType propertyName array defaultValue ';'
-                           | qualifierList dataType propertyName ';'
-                           | qualifierList dataType propertyName defaultValue ';'
-                           | qualifierList dataType propertyName array ';'
-                           | qualifierList dataType propertyName array defaultValue ';'
+    """propertyDeclaration : propertyDeclaration_1
+                           | propertyDeclaration_2
+                           | propertyDeclaration_3
+                           | propertyDeclaration_4
+                           | propertyDeclaration_5
+                           | propertyDeclaration_6
+                           | propertyDeclaration_7
+                           | propertyDeclaration_8
                            """
+    p[0] = p[1]
+
+def p_propertyDeclaration_1(p):
+    """propertyDeclaration_1 : dataType propertyName ';'"""
+    p[0] = pywbem.CIMProperty(p[2], None, type=p[1])
+
+def p_propertyDeclaration_2(p):
+    """propertyDeclaration_2 : dataType propertyName defaultValue ';'"""
+    p[0] = pywbem.CIMProperty(p[2], p[3], type=p[1])
+
+def p_propertyDeclaration_3(p):
+    """propertyDeclaration_3 : dataType propertyName array ';'"""
+    p[0] = pywbem.CIMProperty(p[2], None, type=p[1], is_array=True, 
+            array_size=p[3])
+
+def p_propertyDeclaration_4(p):
+    """propertyDeclaration_4 : dataType propertyName array defaultValue ';'"""
+    p[0] = pywbem.CIMProperty(p[2], p[4], type=p[1], is_array=True, 
+            array_size=p[3])
+
+def p_propertyDeclaration_5(p):
+    """propertyDeclaration_5 : qualifierList dataType propertyName ';'"""
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMProperty(p[3], None, type=p[2], qualifiers=quals)
+
+def p_propertyDeclaration_6(p):
+    """propertyDeclaration_6 : qualifierList dataType propertyName defaultValue ';'"""
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMProperty(p[3], p[4], type=p[2], qualifiers=quals)
+
+def p_propertyDeclaration_7(p):
+    """propertyDeclaration_7 : qualifierList dataType propertyName array ';'"""
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMProperty(p[3], None, type=p[2], qualifiers=quals,
+            is_array=True, array_size=p[4])
+
+def p_propertyDeclaration_8(p):
+    """propertyDeclaration_8 : qualifierList dataType propertyName array defaultValue ';'"""
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMProperty(p[3], p[5], type=p[2], qualifiers=quals,
+            is_array=True, array_size=p[4])
 
 def p_referenceDeclaration(p):
     """referenceDeclaration : objectRef referenceName ';'
@@ -340,6 +449,22 @@ def p_referenceDeclaration(p):
                             | qualifierList objectRef referenceName ';'
                             | qualifierList objectRef referenceName defaultValue ';'
                             """
+    quals = []
+    dv = None
+    if isinstance(p[1], list): # qualifiers
+        quals = p[1]
+        cname = p[2]
+        pname = p[3]
+        if len(p) == 6:
+            dv = p[4]
+    else:
+        cname = p[1]
+        pname = p[2]
+        if len(p) == 5:
+            dv = p[3]
+    quals = dict([(x.name, x) for x in quals])
+    p[0] = pywbem.CIMProperty(pname, dv, type='ref', reference_class=cname, 
+            qualifiers=quals)
 
 def p_methodDeclaration(p):
     """methodDeclaration : dataType methodName '(' ')' ';'
@@ -347,6 +472,25 @@ def p_methodDeclaration(p):
                          | qualifierList dataType methodName '(' ')' ';'
                          | qualifierList dataType methodName '(' parameterList ')' ';'
                          """
+    paramlist = []
+    quals = []
+    if isinstance(p[1], basestring): # no quals
+        dt = p[1]
+        mname = p[2]
+        if p[4] != ')':
+            paramlist = p[4]
+    else: # quals present
+        quals = p[1]
+        dt = p[2]
+        mname = p[3]
+        if p[5] != ')':
+            paramlist = p[5]
+    params = dict([(param.name, param) for param in paramlist])
+    quals = dict([(q.name, q) for q in quals])
+    p[0] = pywbem.CIMMethod(mname, return_type=dt, parameters=params, 
+            qualifiers=quals)
+    # note: class_origin is set when adding method to class. 
+    # TODO what to do with propagated? 
 
 def p_propertyName(p):
     """propertyName : identifier"""
@@ -380,6 +524,7 @@ def p_dataType(p):
 
 def p_objectRef(p):
     """objectRef : className REF"""
+    p[0] = p[1]
 
 def p_parameterList(p):
     """parameterList : parameter
@@ -389,16 +534,57 @@ def p_parameterList(p):
         p[0] = [p[1]]
     else:
         p[0] = p[1] + [p[3]]
+
 def p_parameter(p):
-    """parameter : dataType parameterName
-                 | dataType parameterName array
-                 | qualifierList dataType parameterName
-                 | qualifierList dataType parameterName array
-                 | objectRef parameterName
-                 | objectRef parameterName array
-                 | qualifierList objectRef parameterName
-                 | qualifierList objectRef parameterName array
+    """parameter : parameter_1
+                 | parameter_2
+                 | parameter_3
+                 | parameter_4
                  """
+    p[0] = p[1]
+
+def p_parameter_1(p):
+    """parameter_1 : dataType parameterName
+                   | dataType parameterName array
+                   """
+    args = {}
+    if len(p) == 4:
+        args['is_array'] = True
+        args['array_size'] = p[3]
+    p[0] = pywbem.CIMParameter(p[2], p[1], **args)
+
+def p_parameter_2(p):
+    """parameter_2 : qualifierList dataType parameterName
+                   | qualifierList dataType parameterName array
+                   """
+    args = {}
+    if len(p) == 5:
+        args['is_array'] = True
+        args['array_size'] = p[4]
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMParameter(p[3], p[2], qualifiers=quals, **args)
+
+def p_parameter_3(p):
+    """parameter_3 : objectRef parameterName
+                   | objectRef parameterName array
+                   """
+    args = {}
+    if len(p) == 4:
+        args['is_array'] = True
+        args['array_size'] = p[3]
+    p[0] = pywbem.CIMParameter(p[2], 'ref', reference_class=p[1], **args)
+
+def p_parameter_4(p):
+    """parameter_4 : qualifierList objectRef parameterName
+                   | qualifierList objectRef parameterName array
+                   """
+    args = {}
+    if len(p) == 5:
+        args['is_array'] = True
+        args['array_size'] = p[4]
+    quals = dict([(x.name, x) for x in p[1]])
+    p[0] = pywbem.CIMParameter(p[3], 'ref', qualifiers=quals, 
+                reference_class=p[1], **args)
 
 def p_parameterName(p):
     """parameterName : identifier"""
@@ -409,9 +595,8 @@ def p_array(p):
              | '[' integerValue ']'
              """
     if len(p) == 3:
-        p[0] = -1
+        p[0] = None
     else:
-        print p[2]
         p[0] = p[2]
 
 def p_defaultValue(p):
@@ -421,7 +606,9 @@ def p_defaultValue(p):
 def p_initializer(p):
     """initializer : constantValue
                    | arrayInitializer
-                   | referenceInitializer"""
+                   | referenceInitializer
+                   """
+    p[0] = p[1]
 
 def p_arrayInitializer(p):
     """arrayInitializer : '{' constantValueList '}'
@@ -472,10 +659,13 @@ def p_integerValue(p):
 
 def p_referenceInitializer(p):
     """referenceInitializer : objectHandle
-                            | aliasIdentifier"""
+                            | aliasIdentifier
+                            """
+    p[0] = p[1]
 
 def p_objectHandle(p):
     """objectHandle : identifier"""
+    p[0] = p[1]
 
 def p_qualifierDeclaration(p):
     """qualifierDeclaration : QUALIFIER qualifierName qualifierType scope ';'
@@ -492,6 +682,8 @@ def p_qualifierDeclaration(p):
     p[0] = pywbem.CIMQualifierDeclaration(qualname, dt, value=value, 
                     is_array=is_array, array_size=array_size, 
                     scopes=scopes, flavors=flavors)
+    # TODO
+    #cimdb.SetQualifier(p[0], p.parser.ns)
     print p[0]
 
 
@@ -503,30 +695,28 @@ def p_qualifierName(p):
     p[0] = p[1]
 
 def p_qualifierType(p):
-    """qualifierType : qualifierTypeArray
-                     | qualifierTypeNoArray
+    """qualifierType : qualifierType_1
+                     | qualifierType_2
                      """
     p[0] = p[1]
 
-def p_qualifierTypeArray(p):
-    """qualifierTypeArray : ':' dataType array
-                          | ':' dataType array defaultValue
-                          """
-    if len(p) == 4:
-        dv = None
-    else:
+def p_qualifierType_1(p):
+    """qualifierType_1 : ':' dataType array
+                       | ':' dataType array defaultValue
+                       """
+    dv = None
+    if len(p) == 5:
         dv = p[4]
     p[0] = (p[2], True, p[3], dv)
 
-def p_qualifierTypeNoArray(p):
-    """qualifierTypeNoArray : ':' dataType
-                            | ':' dataType defaultValue
-                            """
-    if len(p) == 3:
-        dv = None
-    else:
+def p_qualifierType_2(p):
+    """qualifierType_2 : ':' dataType 
+                       | ':' dataType defaultValue
+                       """
+    dv = None
+    if len(p) == 4:
         dv = p[3]
-    p[0] = (p[2], False, -1, dv)
+    p[0] = (p[2], False, None, dv)
 
 def p_scope(p):
     """scope : ',' SCOPE '(' metaElementList ')'"""
@@ -596,27 +786,36 @@ def p_instanceDeclaration(p):
                            | qualifierList INSTANCE OF className '{' valueInitializerList '}' ';'
                            | qualifierList INSTANCE OF className alias '{' valueInitializerList '}' ';'
                            """
-    if p[1].lower() == 'instance': # no qualifiers
-        quals = {}
+    alias = None
+    quals = {}
+    if isinstance(p[1], basestring): # no qualifiers
+        cname = p[3]
         if p[4] == '{':
             props = p[5]
-            alias = None
         else:
             props = p[6]
             alias = p[4]
     else:
-        quals = {} # qualifiers on instances are deprecated -- rightly so. 
+        cname = p[4]
+        #quals = p[1] # qualifiers on instances are deprecated -- rightly so. 
         if p[5] == '{':
             props = p[6]
-            alias = None
         else:
             props = p[7]
             alias = p[5]
 
-    # TODO: fetch class, create inst. 
-    if alias is not None:
-        p.parser.aliases[alias] = inst
+    cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
+            IncludeQualifiers=False, IncludeClassOrigin=False)
+    path = pywbem.CIMInstanceName(cname, namespace=p.parser.ns)
+    inst = pywbem.CIMInstance(cname, properties=cc.properties, 
+            qualifiers=quals, path=path)
+    for prop in props: 
+        cprop = inst.properties[prop.name]
+        cprop.value = prop.value
+        cprop.reference_class = prop.reference_class
 
+    # TODO store alias
+    # TODO process instance. 
 
 def p_valueInitializerList(p):
     """valueInitializerList : valueInitializer
@@ -697,6 +896,8 @@ def find_column(input, token):
     column = (token.lexpos - i)+1
     return column
 
+def _get_qualifier_decl(ns, qname):
+    return cimdb.GetQualifier(qname, ns)
 
 if __name__ == '__main__':
     #lex.runmain()
@@ -710,7 +911,10 @@ if __name__ == '__main__':
     lexer.parser = parser
     parser.mof = f.read() 
     f.close()
-    parser.ns = 'root/cimv2'
+    parser.ns = 'mofcomp'
+    nss = [x for x in cimdb.Namespaces()] 
+    if parser.ns not in nss:
+        cimdb.CreateNamespace(parser.ns)
     parser.parse(parser.mof, lexer=lexer)
     sys.exit(0)
 
