@@ -24,6 +24,7 @@ import os
 import ply.lex as lex
 import ply.yacc as yacc
 from ply.lex import TOKEN
+import pywbem
 
 reserved = {
     'any':'ANY',
@@ -78,6 +79,7 @@ tokens = reserved.values() + [
         'hexValue',
     ]
 
+literals = '#(){};[],$:='
 
 # UTF-8 (from Unicode 4.0.0 standard):
 # Table 3-6. Well-Formed UTF-8 Byte Sequences Code Points
@@ -125,9 +127,8 @@ escapeSequence = r'[\\]((%s)|(%s))' % (simpleEscape, hexEscape)
 cChar = r"[^'\\\n\r]|(%s)" % escapeSequence
 sChar = r'[^"\\\n\r]|(%s)' % escapeSequence
 charValue = r"'%s'" % cChar
-t_stringValue = r'"(%s)*"' % sChar
 
-literals = '#(){};[],$:='
+t_stringValue = r'"(%s)*"' % sChar
 
 identifier_re = r'([a-zA-Z_]|(%s))([0-9a-zA-Z_]|(%s))*' % (utf8Char, utf8Char)
 
@@ -140,6 +141,7 @@ def t_IDENTIFIER(t):
 def t_newline(t):
     r'\n+'
     t.lexer.lineno += len(t.value)
+    t.lexer.linestart = t.lexpos
 
 t_ignore = ' \r\t'
 
@@ -169,12 +171,33 @@ def p_mofProduction(p):
 
 def p_compilerDirective(p): 
     """compilerDirective : '#' PRAGMA pragmaName '(' pragmaParameter ')'"""
+    directive = p[3].lower()
+    param = p[5]
+    if directive == 'include':
+        fname = os.path.dirname(p.parser.file) + '/' + param
+        print 'Compiling', fname
+        f = open(fname, 'r')
+        mof = f.read()
+        f.close()
+        parser = yacc.yacc()
+        parser.file = fname
+        parser.mof = mof
+        lexer = lex.lex()
+        lexer.parser = parser
+        parser.ns = p.parser.ns
+        parser.parse(mof, lexer=lexer)
+    elif directive == 'namespace':
+        p.parser.ns = param
+    
+    p[0] = None
 
 def p_pragmaName(p):
     """pragmaName : identifier"""
+    p[0] = p[1]
 
 def p_pragmaParameter(p):
     """pragmaParameter : stringValue"""
+    p[0] = p[1][1:-1]
 
 def p_classDeclaration(p):
     """classDeclaration : CLASS className '{' classFeatureList '}' ';'
@@ -218,6 +241,7 @@ def p_indicDeclaration(p):
 
 def p_className(p):
     """className : identifier"""
+    p[0] = p[1]
 
 def p_alias(p):
     """alias : AS aliasIdentifier"""
@@ -227,6 +251,7 @@ def p_aliasIdentifier(p):
 
 def p_superClass(p):
     """superClass : ':' className"""
+    p[0] = p[2]
 
 def p_classFeature(p):
     """classFeature : propertyDeclaration
@@ -251,6 +276,10 @@ def p_flavorList(p):
     """flavorList : flavor
                   | flavorList flavor
                   """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
 
 def p_qualifierParameter(p):
     """qualifierParameter : '(' constantValue ')'
@@ -264,6 +293,7 @@ def p_flavor(p):
               | TOSUBCLASS
               | TRANSLATABLE
               """
+    p[0] = p[1]
 
 def p_propertyDeclaration(p):
     """propertyDeclaration : dataType propertyName ';'
@@ -292,12 +322,15 @@ def p_methodDeclaration(p):
 
 def p_propertyName(p):
     """propertyName : identifier"""
+    p[0] = p[1]
 
 def p_referenceName(p):
     """referenceName : identifier"""
+    p[0] = p[1]
 
 def p_methodName(p):
     """methodName : identifier"""
+    p[0] = p[1]
 
 def p_dataType(p):
     """dataType : DT_UINT8
@@ -315,6 +348,7 @@ def p_dataType(p):
                 | DT_BOOL
                 | DT_DATETIME
                 """
+    p[0] = p[1]
 
 def p_objectRef(p):
     """objectRef : className REF"""
@@ -323,6 +357,10 @@ def p_parameterList(p):
     """parameterList : parameter
                      | parameterList ',' parameter
                      """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
 def p_parameter(p):
     """parameter : dataType parameterName
                  | dataType parameterName array
@@ -336,14 +374,21 @@ def p_parameter(p):
 
 def p_parameterName(p):
     """parameterName : identifier"""
+    p[0] = p[1]
 
 def p_array(p):
     """array : '[' ']'
              | '[' integerValue ']'
              """
+    if len(p) == 3:
+        p[0] = -1
+    else:
+        print p[2]
+        p[0] = p[2]
 
 def p_defaultValue(p):
     """defaultValue : '=' initializer"""
+    p[0] = p[2]
 
 def p_initializer(p):
     """initializer : constantValue
@@ -354,16 +399,29 @@ def p_arrayInitializer(p):
     """arrayInitializer : '{' constantValueList '}'
                         | '{' '}'
                         """
+    if len(p) == 3:
+        p[0] = []
+    else:
+        p[0] = p[2]
 
 def p_constantValueList(p):
     """constantValueList : constantValue
                          | constantValueList ',' constantValue
                          """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
 
 def p_stringValueList(p):
     """stringValueList : stringValue
                        | stringValueList stringValue
                        """
+    if len(p) == 2:
+        p[0] = p[1][1:-1]
+    else:
+        p[0] = p[1] + p[2][1:-1]
+
 
 def p_constantValue(p):
     """constantValue : integerValue
@@ -373,6 +431,7 @@ def p_constantValue(p):
                      | booleanValue
                      | nullValue
                      """
+    p[0] = p[1]
 
 def p_integerValue(p):
     """integerValue : binaryValue
@@ -380,6 +439,8 @@ def p_integerValue(p):
                     | decimalValue
                     | hexValue
                     """
+    p[0] = int(p[1])
+    # TODO deal with non-decimal values. 
 
 def p_referenceInitializer(p):
     """referenceInitializer : objectHandle
@@ -391,29 +452,80 @@ def p_objectHandle(p):
 def p_qualifierDeclaration(p):
     """qualifierDeclaration : QUALIFIER qualifierName qualifierType scope ';'
                             | QUALIFIER qualifierName qualifierType scope defaultFlavor ';'
-                            | 
                             """
+    qualtype = p[3]
+    dt, is_array, array_size, value = qualtype
+    qualname = p[2]
+    scopes = p[4]
+    if len(p) == 5:
+        flavors = {}
+    else:
+        flavors = p[5]
+    p[0] = pywbem.CIMQualifierDeclaration(qualname, dt, value=value, 
+                    is_array=is_array, array_size=array_size, 
+                    scopes=scopes, flavors=flavors)
+    print p[0]
+
 
 def p_qualifierName(p):
     """qualifierName : identifier
                      | ASSOCIATION
                      | INDICATION
                      """
+    p[0] = p[1]
 
 def p_qualifierType(p):
-    """qualifierType : ':' dataType
-                     | ':' dataType defaultValue
-                     | ':' dataType array
-                     | ':' dataType array defaultValue
+    """qualifierType : qualifierTypeArray
+                     | qualifierTypeNoArray
                      """
+    p[0] = p[1]
+
+def p_qualifierTypeArray(p):
+    """qualifierTypeArray : ':' dataType array
+                          | ':' dataType array defaultValue
+                          """
+    if len(p) == 4:
+        dv = None
+    else:
+        dv = p[4]
+    p[0] = (p[2], True, p[3], dv)
+
+def p_qualifierTypeNoArray(p):
+    """qualifierTypeNoArray : ':' dataType
+                            | ':' dataType defaultValue
+                            """
+    if len(p) == 3:
+        dv = None
+    else:
+        dv = p[3]
+    p[0] = (p[2], False, -1, dv)
 
 def p_scope(p):
     """scope : ',' SCOPE '(' metaElementList ')'"""
+    slist = p[4]
+    ulist = [x.upper() for x in slist]
+    scopes = {}
+    for i in ('SCHEMA',
+              'CLASS',
+              'ASSOCIATION',
+              'INDICATION',
+              'QUALIFIER',
+              'PROPERTY',
+              'REFERENCE',
+              'METHOD',
+              'PARAMETER',
+              'ANY'):
+        scopes[i] = i in ulist
+    p[0] = scopes
 
 def p_metaElementList(p):
     """metaElementList : metaElement
                        | metaElementList ',' metaElement
                        """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
 
 def p_metaElement(p):
     """metaElement : SCHEMA
@@ -427,14 +539,30 @@ def p_metaElement(p):
                    | PARAMETER
                    | ANY
                    """
+    p[0] = p[1]
 
 def p_defaultFlavor(p):
     """defaultFlavor : ',' FLAVOR '(' flavorListWithComma ')'"""
+    flist = p[4]
+    ulist = [x.upper() for x in flist]
+    flavors = {'ENABLEOVERRIDE':True,
+               'TOSUBCLASS':True,
+               'DISABLEOVERRIDE':False,
+               'RESTRICTED':False,
+               'TRANSLATABLE':False}
+    for i in ulist:
+        flavors[i] = True
+    p[0] = flavors
+
 
 def p_flavorListWithComma(p):
     """flavorListWithComma : flavor
                            | flavorListWithComma ',' flavor
                            """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
 
 def p_instanceDeclaration(p):
     """instanceDeclaration : INSTANCE OF className '{' valueInitializerList '}' ';'
@@ -457,9 +585,11 @@ def p_booleanValue(p):
     """booleanValue : FALSE
                     | TRUE
                     """
+    p[0] = p[1].lower() == 'true'
 
 def p_nullValue(p):
     """nullValue : NULL"""
+    p[0] = None
 
 def p_identifier(p):
     """identifier : IDENTIFIER
@@ -486,6 +616,7 @@ def p_identifier(p):
                   """
                   #| ASSOCIATION
                   #| INDICATION
+    p[0] = p[1]
 
 def p_empty(p):
     'empty :'
@@ -494,7 +625,7 @@ def p_empty(p):
 def p_error(p):
     print 'Syntax Error in input!'
     print p
-    print 'column: ', find_column(mof, p)
+    print 'column: ', find_column(p.lexer.parser.mof, p)
 
 def find_column(input, token):
     i = token.lexpos
@@ -505,21 +636,31 @@ def find_column(input, token):
     column = (token.lexpos - i)+1
     return column
 
-lexer = lex.lex(debug=1)
-yacc.yacc(debug=1)
-
 
 if __name__ == '__main__':
     #lex.runmain()
     #sys.exit(0)
     global mof
+    lexer = lex.lex()
+    parser = yacc.yacc()
+    fname = sys.argv[1]
+    f = open(fname, 'r')
+    parser.file = fname
+    lexer.parser = parser
+    parser.mof = f.read() 
+    f.close()
+    parser.ns = 'root/cimv2'
+    parser.parse(parser.mof, lexer=lexer)
+    sys.exit(0)
+
     for w in os.walk('/usr/share/mof'):
         for f in w[2]:
             if not f.endswith('.mof'):
                 continue
             file = '%s/%s' % (w[0], f)
             print 'Parsing', file
-            mof = open(file, 'r').read()
-            lexer.lineno = 1
-            yacc.parse(mof)
+            f = open(file, 'r')
+            mof = f.read()
+            f.close()
+            parser.parse(mof, lexer=lexer)
 
