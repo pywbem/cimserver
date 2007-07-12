@@ -185,9 +185,9 @@ def EnumerateQualifiers(namespace):
         cursor = conn.get_cursor()
         for data, in cursor.execute('select data from QualifierTypes'):
             yield pickle.loads(str(data))
-        conn.close(True)
+        conn.close()
     except:
-        conn.close(True)
+        conn.close()
         raise
 
 ##############################################################################
