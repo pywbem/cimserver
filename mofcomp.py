@@ -226,11 +226,19 @@ def p_qualifierListEmpty(p):
     """qualifierListEmpty : empty
                           | qualifierListEmpty ',' qualifier
                           """
+    if len(p) == 2:
+        p[0] = []
+    else:
+        p[0] = p[1] + [p[3]]
 
 def p_associationFeatureList(p):
     """associationFeatureList : empty 
                               | associationFeatureList associationFeature
                               """
+    if len(p) == 2:
+        p[0] = []
+    else:
+        p[0] = p[1] + [p[2]]
 
 def p_indicDeclaration(p):
     """indicDeclaration : '[' INDICATION qualifierListEmpty ']' CLASS className '{' classFeatureList '}' ';'
@@ -245,9 +253,11 @@ def p_className(p):
 
 def p_alias(p):
     """alias : AS aliasIdentifier"""
+    p[0] = p[2]
 
 def p_aliasIdentifier(p):
     """aliasIdentifier : '$' identifier"""
+    p[0] = p[2]
 
 def p_superClass(p):
     """superClass : ':' className"""
@@ -258,12 +268,15 @@ def p_classFeature(p):
                     | methodDeclaration
                     | referenceDeclaration
                     """
+    p[0] = p[1]
 
 def p_associationFeature(p):
     """associationFeature : classFeature"""
+    p[0] = p[1]
 
 def p_qualifierList(p):
     """qualifierList : '[' qualifier qualifierListEmpty ']'"""
+    p[0] = [p[2]] + p[3]
 
 def p_qualifier(p): 
     """qualifier : qualifierName
@@ -271,6 +284,17 @@ def p_qualifier(p):
                  | qualifierName qualifierParameter
                  | qualifierName qualifierParameter ':' flavorList
                  """
+    qname = p[1]
+    qval = None
+    flavorlist = []
+    if len(p) == 3:
+        qval = p[2]
+    elif len(p) == 4:
+        flavorlist = p[3]
+    elif len(p) == 5:
+        qval = p[2]
+        flavorlist = p[4]
+    # TODO build qualifier
 
 def p_flavorList(p):
     """flavorList : flavor
@@ -285,6 +309,10 @@ def p_qualifierParameter(p):
     """qualifierParameter : '(' constantValue ')'
                           | arrayInitializer
                           """
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = p[2]
 
 def p_flavor(p):
     """flavor : ENABLEOVERRIDE
@@ -293,7 +321,7 @@ def p_flavor(p):
               | TOSUBCLASS
               | TRANSLATABLE
               """
-    p[0] = p[1]
+    p[0] = p[1].upper()
 
 def p_propertyDeclaration(p):
     """propertyDeclaration : dataType propertyName ';'
@@ -348,7 +376,7 @@ def p_dataType(p):
                 | DT_BOOL
                 | DT_DATETIME
                 """
-    p[0] = p[1]
+    p[0] = p[1].lower()
 
 def p_objectRef(p):
     """objectRef : className REF"""
@@ -503,7 +531,6 @@ def p_qualifierTypeNoArray(p):
 def p_scope(p):
     """scope : ',' SCOPE '(' metaElementList ')'"""
     slist = p[4]
-    ulist = [x.upper() for x in slist]
     scopes = {}
     for i in ('SCHEMA',
               'CLASS',
@@ -515,7 +542,7 @@ def p_scope(p):
               'METHOD',
               'PARAMETER',
               'ANY'):
-        scopes[i] = i in ulist
+        scopes[i] = i in slist
     p[0] = scopes
 
 def p_metaElementList(p):
@@ -539,18 +566,17 @@ def p_metaElement(p):
                    | PARAMETER
                    | ANY
                    """
-    p[0] = p[1]
+    p[0] = p[1].upper()
 
 def p_defaultFlavor(p):
     """defaultFlavor : ',' FLAVOR '(' flavorListWithComma ')'"""
     flist = p[4]
-    ulist = [x.upper() for x in flist]
     flavors = {'ENABLEOVERRIDE':True,
                'TOSUBCLASS':True,
                'DISABLEOVERRIDE':False,
                'RESTRICTED':False,
                'TRANSLATABLE':False}
-    for i in ulist:
+    for i in flist:
         flavors[i] = True
     p[0] = flavors
 
@@ -570,16 +596,51 @@ def p_instanceDeclaration(p):
                            | qualifierList INSTANCE OF className '{' valueInitializerList '}' ';'
                            | qualifierList INSTANCE OF className alias '{' valueInitializerList '}' ';'
                            """
+    if p[1].lower() == 'instance': # no qualifiers
+        quals = {}
+        if p[4] == '{':
+            props = p[5]
+            alias = None
+        else:
+            props = p[6]
+            alias = p[4]
+    else:
+        quals = {} # qualifiers on instances are deprecated -- rightly so. 
+        if p[5] == '{':
+            props = p[6]
+            alias = None
+        else:
+            props = p[7]
+            alias = p[5]
+
+    # TODO: fetch class, create inst. 
+    if alias is not None:
+        p.parser.aliases[alias] = inst
+
 
 def p_valueInitializerList(p):
     """valueInitializerList : valueInitializer
                             | valueInitializerList valueInitializer
                             """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
+    
 
 def p_valueInitializer(p):
     """valueInitializer : identifier defaultValue ';'
                         | qualifierList identifier defaultValue ';'
                         """
+    if len(p) == 4:
+        id = p[1]
+        val = p[2]
+        quals = []
+    else:
+        quals = p[1]
+        id = p[2]
+        quals = p[3]
+    p[0] = (quals, id, val)
 
 def p_booleanValue(p):
     """booleanValue : FALSE
