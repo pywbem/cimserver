@@ -204,11 +204,12 @@ def p_compilerDirective(p):
         f = open(fname, 'r')
         mof = f.read()
         f.close()
+        # TODO find a different way to do this.  This is really slow. 
         parser = yacc.yacc()
-        parser.file = fname
-        parser.mof = mof
         lexer = lex.lex()
         lexer.parser = parser
+        parser.file = fname
+        parser.mof = mof
         parser.ns = p.parser.ns
         parser.parse(mof, lexer=lexer)
     elif directive == 'namespace':
@@ -406,22 +407,17 @@ def p_qualifier(p):
     elif len(p) == 5:
         qval = p[2]
         flavorlist = p[4]
+    flavors = _build_flavors(flavorlist)
     qt = _get_qualifier_decl(p.parser.ns, qname)
     if qval is None: 
-        qval = qt.value # default value
-    propagated = True # 'RESTRICTED' in flavorlist or qt.flavors['RESTRICTED']
-    overridable = True # 'ENABLEOVERRIDE' in flavorlist or qt.flavors['ENABLEOVERRIDE']
-    if 'DISABLEOVERRIDE' in flavorlist:
-        overridable = False
-    tosubclass = True # 'TOSUBCLASS' in flavorlist or qt.flavors['TOSUBCLASS']
-    toinstance = True # TODO ???
-    translatable = True # 'TRANSLATABLE' in flavorlist or qt.flavors['TRANSLATABLE']
-    if qval is not None: 
+        if qt.type == 'boolean':
+            qval = True
+        else:
+            qval = qt.value # default value
+    else:
         qval = pywbem.tocimobj(qt.type, qval)
-    p[0] = pywbem.CIMQualifier(qname, qval, type=qt.type, 
-            propagated=propagated, overridable=overridable, 
-            tosubclass=tosubclass, toinstance=toinstance, 
-            translatable=translatable)
+    p[0] = pywbem.CIMQualifier(qname, qval, type=qt.type, **flavors)
+    # TODO propagated? 
 
 def p_flavorList(p):
     """flavorList : flavor
@@ -448,7 +444,7 @@ def p_flavor(p):
               | TOSUBCLASS
               | TRANSLATABLE
               """
-    p[0] = p[1].upper()
+    p[0] = p[1].lower()
 
 def p_propertyDeclaration(p):
     """propertyDeclaration : propertyDeclaration_1
@@ -735,13 +731,29 @@ def p_qualifierDeclaration(p):
     qualname = p[2]
     scopes = p[4]
     if len(p) == 5:
-        flavors = {}
+        flist = []
     else:
-        flavors = p[5]
+        flist = p[5]
+    flavors = _build_flavors(flist)
+
     p[0] = pywbem.CIMQualifierDeclaration(qualname, dt, value=value, 
                     is_array=is_array, array_size=array_size, 
-                    scopes=scopes, flavors=flavors)
+                    scopes=scopes, **flavors)
+    _qual_cache[qualname] = p[0]
 
+def _build_flavors(flist):
+    flavors = {}
+    if 'disableoverride' in flist:
+        flavors['overridable'] = False
+    if 'enableoverride' in flist:
+        flavors['overridable'] = True
+    if 'translatable' in flist:
+        flavors['translatable'] = True
+    if 'restricted' in flist:
+        flavors['tosubclass'] = False
+    if 'tosubclass' in flist:
+        flavors['tosubclass'] = True
+    return flavors
 
 def p_qualifierName(p):
     """qualifierName : identifier
@@ -952,8 +964,14 @@ def find_column(input, token):
     column = (token.lexpos - i)+1
     return column
 
+_qual_cache = pywbem.NocaseDict()
+
 def _get_qualifier_decl(ns, qname):
-    return cimdb.GetQualifier(qname, ns)
+    try:
+        return _qual_cache[qname]
+    except KeyError:
+        print '*************** cache miss'
+        return cimdb.GetQualifier(qname, ns)
 
 if __name__ == '__main__':
     #lex.runmain()
