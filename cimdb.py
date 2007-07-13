@@ -21,6 +21,7 @@
 import os, pywbem, apsw
 import cPickle as pickle
 import operator
+import zlib
 
 _REPDIR = './repository'
 
@@ -57,6 +58,11 @@ def _createdb(dbname):
             'refpropname TEXT NOT NULL COLLATE NOCASE,'
             'PRIMARY KEY(assoccid, refpropcid, refpropname));')
     return conn
+
+
+##############################################################################
+_decode = lambda x: (pickle.loads(zlib.decompress(x)))
+_encode = lambda x: buffer(zlib.compress(pickle.dumps(x, pickle.HIGHEST_PROTOCOL)))
 
 ##############################################################################
 def _makedbname(namespace):
@@ -134,7 +140,7 @@ def GetQualifier(QualifierName, namespace, Connection=None):
         except StopIteration:
             raise pywbem.CIMError(pywbem.CIM_ERR_NOT_FOUND)
         cursor.close(True)
-        cqt = pickle.loads(str(data))
+        cqt = _decode(data)
         Connection or conn.close(True)
     except:
         Connection or conn.close(True)
@@ -146,7 +152,7 @@ def SetQualifier(QualifierDeclaration, namespace):
     conn = _getdbconnection(namespace)
     try:
         cursor = conn.cursor()
-        pargq = pickle.dumps(QualifierDeclaration, pickle.HIGHEST_PROTOCOL)
+        pargq = _encode(QualifierDeclaration)
         try:
             cqt = GetQualifier(QualifierDeclaration.name, namespace, conn)
         except pywbem.CIMError: 
@@ -154,10 +160,10 @@ def SetQualifier(QualifierDeclaration, namespace):
 
         if cqt:
             cursor.execute('update QualifierTypes set data=? where name=?',
-                (buffer(pargq), QualifierDeclaration.name))
+                (pargq, QualifierDeclaration.name))
         else:
             cursor.execute('insert into QualifierTypes values(?,?)',
-                (QualifierDeclaration.name, buffer(pargq)))
+                (QualifierDeclaration.name, pargq))
         conn.close(True)
     except:
         conn.close(True)
@@ -183,7 +189,7 @@ def EnumerateQualifiers(namespace):
     try:
         cursor = conn.get_cursor()
         for data, in cursor.execute('select data from QualifierTypes'):
-            yield pickle.loads(str(data))
+            yield _decode(data)
         conn.close()
     except:
         conn.close()
@@ -406,9 +412,9 @@ def CreateClass(NewClass, namespace):
             # There is no super class
             NewClass = _adjust_root_class(NewClass)
 
-        pcc = pickle.dumps(NewClass, pickle.HIGHEST_PROTOCOL)
+        pcc = _encode(NewClass)
         cursor.execute('insert into Classes values(NULL,?,?)',
-                (NewClass.classname, buffer(pcc)))
+                (NewClass.classname, pcc))
         cid = conn.last_insert_rowid()
         if NewClass.superclass:
             # create a single SuperClasses row for this class and its immediate
@@ -455,9 +461,9 @@ def ModifyClass(ModifiedClass, namespace):
             ModifiedClass = _adjust_root_class(ModifiedClass)
 
         cursor = conn.cursor()
-        pcc = pickle.dumps(ModifiedClass, pickle.HIGHEST_PROTOCOL)
+        pcc = _encode(ModifiedClass)
         cursor.execute('update Classes set data=? where name=?',
-            (buffer(pcc), ModifiedClass.classname))
+            (pcc, ModifiedClass.classname))
         conn.close(True)
     except:
         conn.close(True)
@@ -476,7 +482,7 @@ def _get_bare_class(conn, thename=None, thecid=None):
                 (thecid,))
         try:
             cid,data = cursor.next()
-            theclass = pickle.loads(str(data))
+            theclass = _decode(data)
             cursor.close(True)
             cc = (cid,theclass)
         except StopIteration:
@@ -523,11 +529,10 @@ def _filter_class(cim_class, IncludeQualifiers, IncludeClassOrigin,
 ##############################################################################
 def _get_class(conn, name, namespace, LocalOnly=False, IncludeQualifiers=True,
         IncludeClassOrigin=True, PropertyList=None):
-    try:
-        thecid,thecc = _get_bare_class(conn, thename=name)
-    except TypeError:
+    t = _get_bare_class(conn, thename=name)
+    if t is None:
         raise pywbem.CIMError(pywbem.CIM_ERR_NOT_FOUND)
-
+    thecid,thecc = t
     if not thecc.superclass or LocalOnly:
         return (thecid, _filter_class(thecc, IncludeQualifiers, IncludeClassOrigin,
                     PropertyList))
@@ -750,7 +755,7 @@ def GetInstance(InstanceName, LocalOnly=True,
             data, = cursor.next()
             cursor.close(True)
             Connection or conn.close(True)
-            ci = pickle.loads(str(data))
+            ci = _decode(data)
             return _filter_instance(ci, theclass, IncludeQualifiers,
                 IncludeClassOrigin, PropertyList)
         except StopIteration:
@@ -796,7 +801,7 @@ def EnumerateInstances(ClassName, namespace, LocalOnly=True,
 
             for data, in cursor.execute('select data from Instances where '
                     'classname=?', (cname,)):
-                ci = pickle.loads(str(data))
+                ci = _decode(data)
                 yield _filter_instance(ci, theclass, IncludeQualifiers,
                     IncludeClassOrigin, PropertyList)
         conn.close()
@@ -824,7 +829,7 @@ def EnumerateInstanceNames(ClassName, namespace):
         for cname in classnames:
             for data, in cursor.execute('select data from Instances where '
                     'classname=?', (cname,)):
-                ci = pickle.loads(str(data))
+                ci = _decode(data)
                 yield ci.path
 
         conn.close()
@@ -895,9 +900,9 @@ def CreateInstance(NewInstance):
             prop.qualifiers = pywbem.NocaseDict()
             prop.class_origin = None
 
-        pd = pickle.dumps(NewInstance, pickle.HIGHEST_PROTOCOL)
+        pd = _encode(NewInstance)
         cursor.execute('insert into Instances values(?,?,?);',
-                (class_name, strkey, buffer(pd)))
+                (class_name, strkey, pd))
         conn.close(True)
         return ipath
     except:
@@ -962,10 +967,10 @@ def ModifyInstance(ModifiedInstance, PropertyList=None):
                     oldci[propname] = prop
 
         strkey = _make_key_string(ipath)
-        pci = pickle.dumps(oldci, pickle.HIGHEST_PROTOCOL)
+        pci = _encode(oldci)
         cursor = conn.cursor()
         cursor.execute('update Instances set data=? where strkey=?',
-                (buffer(pci), strkey))
+                (pci, strkey))
         conn.close(True)
     except:
         conn.close(True)
