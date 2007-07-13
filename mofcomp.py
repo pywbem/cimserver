@@ -16,7 +16,7 @@
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
 
-# Author: Bart Whiteley <bwhiteley@suse.de>
+# Author: Bart Whiteley <bwhiteley suse.de>
 
 import sys
 import os
@@ -162,12 +162,37 @@ def p_mofProductionList(p):
 
 def p_mofProduction(p):
     """mofProduction : compilerDirective
-                     | classDeclaration
-                     | assocDeclaration
-                     | indicDeclaration
-                     | qualifierDeclaration
-                     | instanceDeclaration
+                     | mp_createClass
+                     | mp_setQualifier
+                     | mp_createInstance
                      """
+
+def p_mp_createClass(p):
+    """mp_createClass : classDeclaration
+                      | assocDeclaration
+                      | indicDeclaration
+                      """
+    cc = p[1]
+    print 'Creating class %s...' % cc.classname
+    try:
+        cimdb.CreateClass(cc, p.parser.ns)
+    except pywbem.CIMError, ce:
+        if ce.args[0] != pywbem.CIM_ERR_ALREADY_EXISTS:
+            raise
+        print 'Class %s already exist.  Modifying...' % cc.classname
+        cimdb.ModifyClass(cc, p.parser.ns)
+
+def p_mp_createInstance(p):
+    """mp_createInstance : instanceDeclaration"""
+    inst = p[1]
+    print 'Creating instance of %s.' % inst.classname
+    cimdb.CreateInstance(inst)
+
+def p_mp_setQualifier(p):
+    """mp_setQualifier : qualifierDeclaration"""
+    qualdecl = p[1]
+    print 'Setting qualifier %s' % qualdecl.name
+    cimdb.SetQualifier(qualdecl, p.parser.ns)
 
 def p_compilerDirective(p): 
     """compilerDirective : '#' PRAGMA pragmaName '(' pragmaParameter ')'"""
@@ -254,10 +279,7 @@ def p_classDeclaration(p):
             props[item.name] = item
     p[0] = pywbem.CIMClass(cname, properties=props, methods=methods, 
             superclass=superclass, qualifiers=quals)
-    # TODO make sure quals is a dict, not list. 
     # TODO store alias. 
-    # TODO process class p[0]. 
-    print p[0]
 
 def p_classFeatureList(p):
     """classFeatureList : empty
@@ -274,7 +296,51 @@ def p_assocDeclaration(p):
                         | '[' ASSOCIATION qualifierListEmpty ']' CLASS className alias '{' associationFeatureList '}' ';'
                         | '[' ASSOCIATION qualifierListEmpty ']' CLASS className alias superClass '{' associationFeatureList '}' ';'
                         """
+    aqual = pywbem.CIMQualifier('ASSOCIATION', True, type='boolean')
+    # TODO flavor trash. 
+    quals = [aqual] + p[3]
+    p[0] = _assoc_or_inic_decl(quals, p)
     
+def p_indicDeclaration(p):
+    """indicDeclaration : '[' INDICATION qualifierListEmpty ']' CLASS className '{' classFeatureList '}' ';'
+                        | '[' INDICATION qualifierListEmpty ']' CLASS className superClass '{' classFeatureList '}' ';'
+                        | '[' INDICATION qualifierListEmpty ']' CLASS className alias '{' classFeatureList '}' ';'
+                        | '[' INDICATION qualifierListEmpty ']' CLASS className alias superClass '{' classFeatureList '}' ';'
+                        """
+    iqual = pywbem.CIMQualifier('INDICATION', True, type='boolean')
+    # TODO flavor trash. 
+    quals = [iqual] + p[3]
+    p[0] = _assoc_or_inic_decl(quals, p)
+
+def _assoc_or_indic_decl(quals, p):
+    """(refer to grammer rules on p_assocDeclaration and p_indicDeclaration)"""
+    superclass = None
+    alias = None
+    cname = p[6]
+    if p[7] == '{':
+        cfl = p[8]
+    elif p[7][0] == '$': # alias
+        alias = p[7][1:]
+        if p[8] == '{':
+            cfl = p[9]
+        else:
+            superclass = p[8]
+            cfl = p[10]
+    else:
+        superclass = p[7]
+        cfl = p[9]
+    props = {}
+    methods = {}
+    for item in cfl:
+        item.class_origin = came
+        if isinstance(item, pywbem.CIMMethod):
+            methods[item.name] = item
+        else:
+            props[item.name] = item
+    quals = dict([(x.name, x) for x in quals])
+    return pywbem.CIMClass(cname, properties=props, methods=methods, 
+            superclass=superclass, qualifiers=quals)
+
 def p_qualifierListEmpty(p):
     """qualifierListEmpty : empty
                           | qualifierListEmpty ',' qualifier
@@ -292,13 +358,6 @@ def p_associationFeatureList(p):
         p[0] = []
     else:
         p[0] = p[1] + [p[2]]
-
-def p_indicDeclaration(p):
-    """indicDeclaration : '[' INDICATION qualifierListEmpty ']' CLASS className '{' classFeatureList '}' ';'
-                        | '[' INDICATION qualifierListEmpty ']' CLASS className superClass '{' classFeatureList '}' ';'
-                        | '[' INDICATION qualifierListEmpty ']' CLASS className alias '{' classFeatureList '}' ';'
-                        | '[' INDICATION qualifierListEmpty ']' CLASS className alias superClass '{' classFeatureList '}' ';'
-                        """
 
 def p_className(p):
     """className : identifier"""
@@ -682,9 +741,6 @@ def p_qualifierDeclaration(p):
     p[0] = pywbem.CIMQualifierDeclaration(qualname, dt, value=value, 
                     is_array=is_array, array_size=array_size, 
                     scopes=scopes, flavors=flavors)
-    # TODO
-    #cimdb.SetQualifier(p[0], p.parser.ns)
-    print p[0]
 
 
 def p_qualifierName(p):
@@ -815,7 +871,7 @@ def p_instanceDeclaration(p):
         cprop.reference_class = prop.reference_class
 
     # TODO store alias
-    # TODO process instance. 
+    p[0] = inst 
 
 def p_valueInitializerList(p):
     """valueInitializerList : valueInitializer
