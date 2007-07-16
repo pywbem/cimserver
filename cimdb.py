@@ -197,33 +197,30 @@ def EnumerateQualifiers(namespace):
 
 ##############################################################################
 def _valid_qualifier(conn, qualname):
-    cc = False 
-    cursor = conn.cursor()
-    cursor.execute('select name from QualifierTypes where name=?',
-            (qualname,))
+    cc = None
     try:
-        cursor.next()
-        cc = True
-    except StopIteration:
+        cc = GetQualifier(qualname, None, Connection=conn)
+    except pywbem.CIMError:
         pass
-    cursor.close(True)
     return cc
 
 ##############################################################################
 def _verify_qualifier_set(conn, qualset):
     for qualname,qual in qualset.iteritems():
-        if not _valid_qualifier(conn, qualname):
+        try:
+            qt = GetQualifier(qualname, None, Connection=conn)
+        except pywbem.CIMError:
             raise pywbem.CIMError(pywbem.CIM_ERR_INVALID_PARAMETER,
                 'Qualifier %s is invalid' % qualname)
         # Set flavors to defaults if not specified
         if qual.overridable is None:
-            qual.overridable = True
+            qual.overridable = qt.overridable
         if qual.tosubclass is None:
-            qual.tosubclass = True
+            qual.tosubclass = qt.tosubclass
         if qual.translatable is None:
-            qual.translatable = False
+            qual.translatable = qt.translatable
         if qual.toinstance is None:
-            qual.toinstance = False
+            qual.toinstance = qt.toinstance
 
 ##############################################################################
 def _verify_qualifiers(conn, theclass):
