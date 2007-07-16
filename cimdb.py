@@ -94,7 +94,7 @@ class GeneratorConnection(object):
                 c.close(True)
             operator.delslice(self.cursors, 0, len(self.cursors))
         self.conn.close(True)
-    def get_cursor(self):
+    def cursor(self):
         c = self.conn.cursor()
         self.cursors.append(c)
         return c
@@ -187,7 +187,7 @@ def DeleteQualifier(QualifierName, namespace):
 def EnumerateQualifiers(namespace):
     conn = _get_generator_connection(namespace)
     try:
-        cursor = conn.get_cursor()
+        cursor = conn.cursor()
         for data, in cursor.execute('select data from QualifierTypes'):
             yield _decode(data)
         conn.close()
@@ -581,7 +581,7 @@ def GetClass(ClassName, namespace, LocalOnly=True, IncludeQualifiers=True,
 def EnumerateClasses(ClassName=None, namespace=None, DeepInheritance=False, LocalOnly=True,
         IncludeQualifiers=True, IncludeClassOrigin=False):
     conn = _get_generator_connection(namespace)
-    cursor = conn.get_cursor()
+    cursor = conn.cursor()
     if not ClassName:
         try:
             if DeepInheritance:
@@ -632,7 +632,7 @@ def EnumerateClasses(ClassName=None, namespace=None, DeepInheritance=False, Loca
 ##############################################################################
 def EnumerateClassNames(ClassName=None, namespace=None, DeepInheritance=False):
     conn = _get_generator_connection(namespace)
-    cursor = conn.get_cursor()
+    cursor = conn.cursor()
     if not ClassName:
         try:
             if DeepInheritance:
@@ -769,7 +769,7 @@ def EnumerateInstances(ClassName, namespace, LocalOnly=True,
         DeepInheritance=True, IncludeQualifiers=False, 
         IncludeClassOrigin=False, PropertyList=None):
     conn = _get_generator_connection(namespace)
-    cursor = conn.get_cursor()
+    cursor = conn.cursor()
     try:
         try:
             # Make sure the class exists
@@ -812,7 +812,7 @@ def EnumerateInstances(ClassName, namespace, LocalOnly=True,
 ##############################################################################
 def EnumerateInstanceNames(ClassName, namespace):
     conn = _get_generator_connection(namespace)
-    cursor = conn.get_cursor()
+    cursor = conn.cursor()
     try:
         try:
             # Make sure the class exists
