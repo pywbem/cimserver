@@ -267,8 +267,9 @@ def _adjust_child_class(child_class, parent_class):
             parent_qual = parent_class.qualifiers[child_qual_name]
             # If the value of the qual is not the same, we save it if the
             # qual is overridable
-            if parent_qual.value != child_qual.value:
-                if not parent_qual.overridable:
+            if parent_qual.value != child_qual.value or \
+                    parent_qual.tosubclass is False:
+                if parent_qual.overridable is False: # None means True
                     # Child can change this qualifier because it is not
                     # overridable by subclasses
                     raise pywbem.CIMError(pywbem.CIM_ERR_INVALID_PARAMETER,
@@ -490,6 +491,9 @@ def _get_bare_class(conn, thename=None, thecid=None):
 
 ##############################################################################
 def _merge_classes(child_class, parent_class):
+    for k, v in parent_class.qualifiers.items():
+        if v.tosubclass is False:
+            del parent_class.qualifiers[k]
     parent_class.qualifiers.update(child_class.qualifiers)
     parent_class.properties.update(child_class.properties)
     parent_class.methods.update(child_class.methods)
