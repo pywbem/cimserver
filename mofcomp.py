@@ -186,7 +186,13 @@ def p_mp_createInstance(p):
     """mp_createInstance : instanceDeclaration"""
     inst = p[1]
     print 'Creating instance of %s.' % inst.classname
-    cimdb.CreateInstance(inst)
+    try:
+        cimdb.CreateInstance(inst)
+    except pywbem.CIMError, ce:
+        if ce.args[0] != pywbem.CIM_ERR_ALREADY_EXISTS:
+            raise
+        print 'Instance of class %s already exist.  Modifying...' % inst.classname
+        cimdb.ModifyInstance(inst)
 
 def p_mp_setQualifier(p):
     """mp_setQualifier : qualifierDeclaration"""
@@ -873,14 +879,23 @@ def p_instanceDeclaration(p):
             alias = p[5]
 
     cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
-            IncludeQualifiers=False, IncludeClassOrigin=False)
+            IncludeQualifiers=True, IncludeClassOrigin=False)
     path = pywbem.CIMInstanceName(cname, namespace=p.parser.ns)
     inst = pywbem.CIMInstance(cname, properties=cc.properties, 
             qualifiers=quals, path=path)
     for prop in props: 
-        cprop = inst.properties[prop.name]
-        cprop.value = prop.value
-        cprop.reference_class = prop.reference_class
+        pname = prop[1]
+        pval = prop[2]
+        cprop = inst.properties[pname]
+        cprop.value = pywbem.tocimobj(cprop.type, pval)
+
+    for prop in inst.properties.values():
+        if 'key' not in prop.qualifiers or not prop.qualifiers['key']:
+            continue
+        if prop.value is None: 
+            raise pywbem.CIMError(pywbem.CIM_ERR_FAILED, 
+                    'Key property %s.%s is not set' % (cname, prop.name))
+        inst.path.keybindings[prop.name] = prop.value
 
     # TODO store alias
     p[0] = inst 
@@ -906,7 +921,7 @@ def p_valueInitializer(p):
     else:
         quals = p[1]
         id = p[2]
-        quals = p[3]
+        val = p[3]
     p[0] = (quals, id, val)
 
 def p_booleanValue(p):
@@ -991,15 +1006,4 @@ if __name__ == '__main__':
         cimdb.CreateNamespace(parser.ns)
     parser.parse(parser.mof, lexer=lexer)
     sys.exit(0)
-
-    for w in os.walk('/usr/share/mof'):
-        for f in w[2]:
-            if not f.endswith('.mof'):
-                continue
-            file = '%s/%s' % (w[0], f)
-            print 'Parsing', file
-            f = open(file, 'r')
-            mof = f.read()
-            f.close()
-            parser.parse(mof, lexer=lexer)
 
