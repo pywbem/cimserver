@@ -1,0 +1,18 @@
+-- Repository -- 
+- Make cimdb interface match pywbem.WBEMConnection, so that mofcomp can 
+  drive either one. 
+- profiling / optimization
+- Associations
+
+-- MOF Compiler -- 
+- Make MOF compiler versatile with command-line args, etc.
+- Search for missing schema elements (like owmofc -s)
+
+-- CIM Server --
+- Implement missing operations
+- SSL
+- Authentication
+- Configuration file
+- "repository provider" 
+
+
