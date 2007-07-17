@@ -402,9 +402,15 @@ def CreateClass(NewClass, namespace):
         # If there is a super class then synchronize the class
         # with the super class
         if NewClass.superclass:
-            scid, scc = _get_class(conn, NewClass.superclass, namespace,
-                LocalOnly=False, IncludeQualifiers=True,
-                IncludeClassOrigin=True)
+            try:
+                scid, scc = _get_class(conn, NewClass.superclass, namespace,
+                    LocalOnly=False, IncludeQualifiers=True,
+                    IncludeClassOrigin=True)
+            except pywbem.CIMError, ce:
+                if ce.args[0] == pywbem.CIM_ERR_NOT_FOUND:
+                    raise pywbem.CIMError(pywbem.CIM_ERR_INVALID_SUPERCLASS,
+                            NewClass.superclass)
+                raise
             NewClass = _adjust_child_class(NewClass, scc)
         else:
             # There is no super class
