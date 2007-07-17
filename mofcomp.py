@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #
 # (C) Copyright 2006-2007 Novell, Inc. 
 #
@@ -25,6 +26,7 @@ import ply.yacc as yacc
 from ply.lex import TOKEN
 import pywbem
 import cimdb
+from optparse import OptionParser
 
 reserved = {
     'any':'ANY',
@@ -177,10 +179,21 @@ def p_mp_createClass(p):
     try:
         cimdb.CreateClass(cc, p.parser.ns)
     except pywbem.CIMError, ce:
-        if ce.args[0] != pywbem.CIM_ERR_ALREADY_EXISTS:
+        if ce.args[0] == pywbem.CIM_ERR_ALREADY_EXISTS:
+            print 'Class %s already exist.  Modifying...' % cc.classname
+            cimdb.ModifyClass(cc, p.parser.ns)
+        elif ce.args[0] == pywbem.CIM_ERR_INVALID_SUPERCLASS:
+            file = find_mof(cc.superclass)
+            print 'Superclass %s does not exist' % cc.superclass
+            if file:
+                print 'Found file %s, Compiling...' % file
+                compile_file(file, p.parser.ns)
+                cimdb.CreateClass(cc, p.parser.ns)
+            else:
+                print "Can't find file to satisfy superclass"
+                raise
+        else:
             raise
-        print 'Class %s already exist.  Modifying...' % cc.classname
-        cimdb.ModifyClass(cc, p.parser.ns)
 
 def p_mp_createInstance(p):
     """mp_createInstance : instanceDeclaration"""
@@ -189,10 +202,12 @@ def p_mp_createInstance(p):
     try:
         cimdb.CreateInstance(inst)
     except pywbem.CIMError, ce:
-        if ce.args[0] != pywbem.CIM_ERR_ALREADY_EXISTS:
+        if ce.args[0] == pywbem.CIM_ERR_ALREADY_EXISTS:
+            print 'Instance of class %s already exist.  Modifying...' \
+                    % inst.classname
+            cimdb.ModifyInstance(inst)
+        else:
             raise
-        print 'Instance of class %s already exist.  Modifying...' % inst.classname
-        cimdb.ModifyInstance(inst)
 
 def p_mp_setQualifier(p):
     """mp_setQualifier : qualifierDeclaration"""
@@ -205,19 +220,11 @@ def p_compilerDirective(p):
     directive = p[3].lower()
     param = p[5]
     if directive == 'include':
-        fname = os.path.dirname(p.parser.file) + '/' + param
+        fname = param
+        if p.parser.file:
+            fname = os.path.dirname(p.parser.file) + '/' + fname
         print 'Compiling', fname
-        f = open(fname, 'r')
-        mof = f.read()
-        f.close()
-        # TODO find a different way to do this.  This is really slow. 
-        parser = yacc.yacc()
-        lexer = lex.lex()
-        lexer.parser = parser
-        parser.file = fname
-        parser.mof = mof
-        parser.ns = p.parser.ns
-        parser.parse(mof, lexer=lexer)
+        compile_file(fname, p.parser.ns)
     elif directive == 'namespace':
         p.parser.ns = param
     
@@ -878,8 +885,23 @@ def p_instanceDeclaration(p):
             props = p[7]
             alias = p[5]
 
-    cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
-            IncludeQualifiers=True, IncludeClassOrigin=False)
+    try:
+        cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
+                IncludeQualifiers=True, IncludeClassOrigin=False)
+    except pywbem.CIMError, ce:
+        if ce.args[0] == pywbem.CIM_ERR_NOT_FOUND:
+            file = find_mof(cname)
+            print 'Class %s does not exist' % cname
+            if file:
+                print 'Found file %s, Compiling...' % file
+                compile_file(file, p.parser.ns)
+                cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
+                        IncludeQualifiers=True, IncludeClassOrigin=False)
+            else:
+                print "Can't find file to satisfy class"
+                raise pywbem.CIMError(pywbem.CIM_ERR_INVALID_CLASS, cname)
+        else:
+            raise
     path = pywbem.CIMInstanceName(cname, namespace=p.parser.ns)
     inst = pywbem.CIMInstance(cname, properties=cc.properties, 
             qualifiers=quals, path=path)
@@ -985,25 +1007,57 @@ def _get_qualifier_decl(ns, qname):
     try:
         return _qual_cache[qname]
     except KeyError:
-        print '*************** cache miss'
-        return cimdb.GetQualifier(qname, ns)
+        qt = cimdb.GetQualifier(qname, ns)
+        _qual_cache[qt.name] = qt
+        return qt
+
+def compile_string(mof, ns, filename=None):
+    parser = yacc.yacc()
+    lexer = lex.lex()
+    lexer.parser = parser
+    parser.file = filename
+    parser.mof = mof
+    parser.ns = ns
+    return parser.parse(mof, lexer=lexer)
+
+def compile_file(filename, ns):
+    f = open(filename, 'r')
+    mof = f.read()
+    f.close()
+    return compile_string(mof, ns, filename=filename)
+
+def find_mof(cname):
+    global search
+    if search is None:
+        return None
+    cname = cname.lower()
+    for root, dirs, files in os.walk(search):
+        for file in files:
+            if file.endswith('.mof') and file[:-4].lower() == cname:
+                return root + '/' + file
+    return None
 
 if __name__ == '__main__':
-    #lex.runmain()
-    #sys.exit(0)
     global mof
-    lexer = lex.lex()
-    parser = yacc.yacc()
-    fname = sys.argv[1]
-    f = open(fname, 'r')
-    parser.file = fname
-    lexer.parser = parser
-    parser.mof = f.read() 
-    f.close()
-    parser.ns = 'mofcomp'
+    global search
+    oparser = OptionParser()
+    oparser.add_option('-s', '--search-dir', dest='search', 
+            help='Search path to find missing schema elements', 
+            metavar='File')
+    oparser.add_option('-n', '--namespace', dest='ns', 
+            help='Namespace', metavar='Namespace')
+    (options, args) = oparser.parse_args()
+    search = options.search
+    if not args:
+        oparser.error('No input files given for parsing')
+    if options.ns is None: 
+        oparser.error('No namespace given')
     nss = [x for x in cimdb.Namespaces()] 
-    if parser.ns not in nss:
-        cimdb.CreateNamespace(parser.ns)
-    parser.parse(parser.mof, lexer=lexer)
-    sys.exit(0)
+    if options.ns not in nss:
+        cimdb.CreateNamespace(options.ns)
+
+    for fname in args:
+        if fname[0] != '/':
+            fname = os.path.curdir + '/' + fname
+        compile_file(fname, options.ns)
 
