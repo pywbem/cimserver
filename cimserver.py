@@ -62,11 +62,8 @@ class CIMServer(object):
     PROVIDERTYPE_QUERY = 9
 
     def __init__(self):
-        #self.conn = pywbem.WBEMConnection('https://localhost:30927', 
-        #                                  ('test1', 'pass1'))
         self.env = ProviderEnvironment(Logger(sys.stdout), self)
         self.provregs = {}
-        """
         for inst in cimdb.EnumerateInstances('OpenWBEM_PyProviderRegistration', namespace='Interop'):
             cname = inst['classname']
             mp = inst['modulepath']
@@ -81,7 +78,6 @@ class CIMServer(object):
                     key+= ':'
                 key+= cname.lower() 
                 self.provregs[key] = (mp, pts, methods)
-        """
         for cname in ['cim_namespace']:
             self.provregs[cname] = (internal_providers, 
                                     [self.PROVIDERTYPE_INSTANCE], [])
@@ -104,20 +100,26 @@ class CIMServer(object):
         return pywbem.cim_provider.ProviderProxy(self.env, provreg[0])
 
     def AssociatorNames(self, *args, **kwargs):
-        return self.conn.AssociatorNames(*args, **kwargs)
+        # TODO
+        return None
     def Associators(self, *args, **kwargs):
-        return self.conn.Associators(*args, **kwargs)
+        # TODO
+        return None
     def CreateClass(self, *args, **kwargs):
-        return self.conn.CreateClass(*args, **kwargs)
+        # TODO
+        return None
     def CreateInstance(self, *args, **kwargs):
         del kwargs['namespace']
         cimdb.CreateInstance(*args, **kwargs)
     def DeleteClass(self, *args, **kwargs):
-        return self.conn.DeleteClass(*args, **kwargs)
+        # TODO
+        return None
     def DeleteInstance(self, *args, **kwargs):
-        return self.conn.DeleteInstance(*args, **kwargs)
+        # TODO
+        return None
     def DeleteQualifier(self, *args, **kwargs):
-        return self.conn.DeleteQualifiers(*args, **kwargs)
+        # TODO
+        return None
     def GetClass(self, ClassName, namespace=None,
                  LocalOnly=True, IncludeQualifiers=True, 
                  IncludeClassOrigin=False, PropertyList=None):
@@ -158,41 +160,44 @@ class CIMServer(object):
             provider = self._get_provider(namespace, cc.classname, 
                                           self.PROVIDERTYPE_INSTANCE)
             if provider is not None:
-                rval = []
-                provider.MI_enumInstanceNames(self.env, ns, rval.append, cc)
-                for i in rval:
-                    yield rval
+                gen = provider.MI_enumInstanceNames(self.env, namespace, cc)
+                for i in gen:
+                    yield i
 
-    #return self.conn.EnumerateInstanceNames(*args, **kwargs)
-    def EnumerateInstances(self, *args, **kwargs):
-        ns = kwargs['namespace']
-        cname = kwargs['ClassName']
-        provider = self._get_provider(ns, cname, self.PROVIDERTYPE_INSTANCE)
-        rval = []
-        cc = self.conn.GetClass(cname, namespace=ns, LocalOnly=False, 
-                                IncludeQualifiers=True)
-        provider.MI_enumInstances(self.env, ns, rval.append, cc)
-        for i in rval: 
-            yield i
+    def EnumerateInstances(self, namespace, ClassName, LocalOnly=True, 
+            DeepInheritance=True, IncludeQualifiers=False, 
+            IncludeClassOrigin=False, PropertyList=None):
+        for cc in self._classtree(ClassName, namespace):
+            provider = self._get_provider(namespace, cc.classname, 
+                                          self.PROVIDERTYPE_INSTANCE)
+            if provider is not None:
+                gen = provider.MI_enumInstances(self.env, namespace, 
+                        propertyList=PropertyList, 
+                        requestedCimClass=None, 
+                        cimClass=cc)
+                for i in gen:
+                    yield i
         
     def EnumerateQualifiers(self, *args, **kwargs):
-        return self.conn.EnumerateQualifiers(*args, **kwargs)
+        # TODO
+        return None
     def ExecQuery(self, *args, **kwargs):
-        return self.conn.ExecQuery(*args, **kwargs)
+        # TODO
+        return None
     def GetInstance(self, namespace, InstanceName, 
                     LocalOnly=True, IncludeQualifiers=False, 
                     IncludeClassOrigin=False, PropertyList=None):
         cname = InstanceName.classname
         provider = self._get_provider(namespace, cname, 
                                       self.PROVIDERTYPE_INSTANCE)
-        cc = self.conn.GetClass(cname, namespace=namespace, LocalOnly=False, 
+        cc = cimdb.GetClass(cname, namespace=namespace, LocalOnly=False, 
                                 IncludeQualifiers=True)
         return provider.MI_getInstance(self.env, InstanceName, PropertyList, cc)
 
     def GetQualifier(self, *args, **kwargs):
         return cimdb.GetQualifier(*args, **kwargs)
     def InvokeMethod(self, method_name, object_name, in_params):
-        cc = self.conn.GetClass(object_name.classname, 
+        cc = cimdb.GetClass(object_name.classname, 
                                 namespace=object_name.namespace,
                                 LocalOnly=False, IncludeQualifiers=True)
         provider = self._get_provider(object_name.namespace, 
@@ -202,13 +207,16 @@ class CIMServer(object):
                 cc.methods[method_name], in_params)
 
     def ModifyClass(self, *args, **kwargs):
-        return self.conn.ModifyClass(*args, **kwargs)
+        return cimdb.ModifyClass(*args, **kwargs)
     def ModifyInstance(self, *args, **kwargs):
-        return self.conn.ModifyInstance(*args, **kwargs)
+        # TODO providers...
+        return cimdb.ModifyInstance(*args, **kwargs)
     def ReferenceNames(self, *args, **kwargs):
-        return self.conn.ReferenceNames(*args, **kwargs)
+        # TODO
+        return None
     def References(self, *args, **kwargs):
-        return self.conn.References(*args, **kwargs)
+        # TODO
+        return None
     def SetQualifier(self, *args, **kwargs):
         return cimdb.SetQualifier(*args, **kwargs)
 

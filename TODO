@@ -5,8 +5,7 @@
 - Associations
 
 -- MOF Compiler -- 
-- Make MOF compiler versatile with command-line args, etc.
-- Search for missing schema elements (like owmofc -s)
+- Refactor to take a WBEMConnection instead of just cimdb. 
 
 -- CIM Server --
 - Implement missing operations
@@ -14,5 +13,6 @@
 - Authentication
 - Configuration file
 - "repository provider" 
+- ...
 
 
