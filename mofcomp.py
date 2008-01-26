@@ -150,7 +150,7 @@ def t_COMMENT(t):
     pass
 
 def t_MCOMMENT(t):
-    r' /\*(.|\n)*?\*/'
+    r'/\*(.|\n)*?\*/'
     t.lineno += t.value.count('\n')
 
 
