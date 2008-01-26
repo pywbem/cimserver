@@ -187,7 +187,7 @@ t_ignore = ' \r\t'
 # Error handling rule
 def t_error(t):
     msg = "Illegal character '%s' " % t.value[0]
-    msg+= "Line %d, col %d" % (t.lineno, find_column(mof, t))
+    msg+= "Line %d, col %d" % (t.lineno, find_column(t.lexer.parser.mof, t))
     print msg
     t.lexer.skip(1)
 
@@ -258,10 +258,12 @@ def p_compilerDirective(p):
     param = p[5]
     if directive == 'include':
         fname = param
-        if p.parser.file:
-            fname = os.path.dirname(p.parser.file) + '/' + fname
+        #if p.parser.file:
+        fname = os.path.dirname(p.parser.file) + '/' + fname
         print 'Compiling', fname
+        oldfile = p.parser.file
         compile_file(fname, p.parser.ns)
+        p.parser.file = oldfile
     elif directive == 'namespace':
         p.parser.ns = param
     
@@ -1048,9 +1050,15 @@ def _get_qualifier_decl(ns, qname):
         _qual_cache[qt.name] = qt
         return qt
 
+_lexer = lex.lex()
+#_parser = yacc.yacc()
+_parser = yacc.yacc(optimize=1)
+#_lexer = lex.lex(optimize=1)
 def compile_string(mof, ns, filename=None):
-    parser = yacc.yacc()
-    lexer = lex.lex()
+    #parser = yacc.yacc()
+    parser = _parser
+    lexer = _lexer.clone()
+    #lexer = lex.lex()
     lexer.parser = parser
     parser.file = filename
     parser.mof = mof
