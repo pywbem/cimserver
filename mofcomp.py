@@ -25,8 +25,45 @@ import ply.lex as lex
 import ply.yacc as yacc
 from ply.lex import TOKEN
 import pywbem
-import cimdb
 from optparse import OptionParser
+
+_classes = pywbem.NocaseDict()
+_quals = pywbem.NocaseDict()
+_insts = pywbem.NocaseDict()
+
+class fakeconn(object):
+    def CreateClass(self, klass, namespace=None):
+        if klass.superclass and klass.superclass not in _classes:
+            raise pywbem.CIMError(pywbem.CIM_ERR_INVALID_SUPERCLASS, 
+                    klass.superclass)
+        _classes[klass.classname] = klass
+
+    def CreateInstance(self, inst, namespace=None):
+        try:
+            _insts[inst.classname].append(inst)
+        except KeyError:
+            _insts[inst.classname] = [inst]
+
+    def SetQualifier(self, qual, namespace=None):
+        _quals[qual.name] = qual
+
+    def GetQualifier(self, qualname, namespace=None):
+        try:
+            return _quals[qualname]
+        except KeyError:
+            raise pywbem.CIMError(pywbem.CIM_ERR_NOT_FOUND, 
+                    'Qualifier: %s' % qualname)
+
+    def GetClass(self, classname, namespace=None):
+        try:
+            return _classes[classname]
+        except KeyError:
+            raise pywbem.CIMError(pywbem.CIM_ERR_NOT_FOUND, classname)
+
+
+
+conn = fakeconn()
+
 
 reserved = {
     'any':'ANY',
@@ -177,18 +214,18 @@ def p_mp_createClass(p):
     cc = p[1]
     print 'Creating class %s...' % cc.classname
     try:
-        cimdb.CreateClass(cc, p.parser.ns)
+        conn.CreateClass(cc, p.parser.ns)
     except pywbem.CIMError, ce:
         if ce.args[0] == pywbem.CIM_ERR_ALREADY_EXISTS:
             print 'Class %s already exist.  Modifying...' % cc.classname
-            cimdb.ModifyClass(cc, p.parser.ns)
+            conn.ModifyClass(cc, p.parser.ns)
         elif ce.args[0] == pywbem.CIM_ERR_INVALID_SUPERCLASS:
             file = find_mof(cc.superclass)
             print 'Superclass %s does not exist' % cc.superclass
             if file:
                 print 'Found file %s, Compiling...' % file
                 compile_file(file, p.parser.ns)
-                cimdb.CreateClass(cc, p.parser.ns)
+                conn.CreateClass(cc, p.parser.ns)
             else:
                 print "Can't find file to satisfy superclass"
                 raise
@@ -200,12 +237,12 @@ def p_mp_createInstance(p):
     inst = p[1]
     print 'Creating instance of %s.' % inst.classname
     try:
-        cimdb.CreateInstance(inst)
+        conn.CreateInstance(inst)
     except pywbem.CIMError, ce:
         if ce.args[0] == pywbem.CIM_ERR_ALREADY_EXISTS:
             print 'Instance of class %s already exist.  Modifying...' \
                     % inst.classname
-            cimdb.ModifyInstance(inst)
+            conn.ModifyInstance(inst)
         else:
             raise
 
@@ -213,7 +250,7 @@ def p_mp_setQualifier(p):
     """mp_setQualifier : qualifierDeclaration"""
     qualdecl = p[1]
     print 'Setting qualifier %s' % qualdecl.name
-    cimdb.SetQualifier(qualdecl, p.parser.ns)
+    conn.SetQualifier(qualdecl, p.parser.ns)
 
 def p_compilerDirective(p): 
     """compilerDirective : '#' PRAGMA pragmaName '(' pragmaParameter ')'"""
@@ -886,7 +923,7 @@ def p_instanceDeclaration(p):
             alias = p[5]
 
     try:
-        cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
+        cc = conn.GetClass(cname, p.parser.ns, LocalOnly=False, 
                 IncludeQualifiers=True, IncludeClassOrigin=False)
     except pywbem.CIMError, ce:
         if ce.args[0] == pywbem.CIM_ERR_NOT_FOUND:
@@ -895,7 +932,7 @@ def p_instanceDeclaration(p):
             if file:
                 print 'Found file %s, Compiling...' % file
                 compile_file(file, p.parser.ns)
-                cc = cimdb.GetClass(cname, p.parser.ns, LocalOnly=False, 
+                cc = conn.GetClass(cname, p.parser.ns, LocalOnly=False, 
                         IncludeQualifiers=True, IncludeClassOrigin=False)
             else:
                 print "Can't find file to satisfy class"
@@ -1007,7 +1044,7 @@ def _get_qualifier_decl(ns, qname):
     try:
         return _qual_cache[qname]
     except KeyError:
-        qt = cimdb.GetQualifier(qname, ns)
+        qt = conn.GetQualifier(qname, ns)
         _qual_cache[qt.name] = qt
         return qt
 
@@ -1052,12 +1089,16 @@ if __name__ == '__main__':
         oparser.error('No input files given for parsing')
     if options.ns is None: 
         oparser.error('No namespace given')
-    nss = [x for x in cimdb.Namespaces()] 
-    if options.ns not in nss:
-        cimdb.CreateNamespace(options.ns)
+#    nss = [x for x in conn.Namespaces()] 
+#    if options.ns not in nss:
+#        conn.CreateNamespace(options.ns)
 
     for fname in args:
         if fname[0] != '/':
             fname = os.path.curdir + '/' + fname
         compile_file(fname, options.ns)
+    print 'qualifiers:', len(_quals)
+    print 'classes:', len(_classes)
+    print 'instances:', len(_insts)
+#    raw_input('press any key...')
 
