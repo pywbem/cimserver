@@ -27,6 +27,8 @@ from ply.lex import TOKEN
 import pywbem
 from optparse import OptionParser
 
+_optimize = 1
+
 _classes = pywbem.NocaseDict()
 _quals = pywbem.NocaseDict()
 _insts = pywbem.NocaseDict()
@@ -60,10 +62,10 @@ class fakeconn(object):
         except KeyError:
             raise pywbem.CIMError(pywbem.CIM_ERR_NOT_FOUND, classname)
 
-
-
 conn = fakeconn()
 
+# TODO move to a class
+_qualcache = {}
 
 reserved = {
     'any':'ANY',
@@ -251,6 +253,7 @@ def p_mp_setQualifier(p):
     qualdecl = p[1]
     print 'Setting qualifier %s' % qualdecl.name
     conn.SetQualifier(qualdecl, p.parser.ns)
+    _qualcache[p.parser.ns][qualdecl.name] = qualdecl
 
 def p_compilerDirective(p): 
     """compilerDirective : '#' PRAGMA pragmaName '(' pragmaParameter ')'"""
@@ -266,6 +269,11 @@ def p_compilerDirective(p):
         p.parser.file = oldfile
     elif directive == 'namespace':
         p.parser.ns = param
+        if param not in _qualcache:
+            _qualcache[param] = pywbem.NocaseDict()
+            # TODO create namespace if it doesn't exist
+            for qual in conn.EnumerateQualifiers(namespace=param):
+                _qualcache[param][qual.name] = qual
     
     p[0] = None
 
@@ -459,8 +467,12 @@ def p_qualifier(p):
     elif len(p) == 5:
         qval = p[2]
         flavorlist = p[4]
-    flavors = _build_flavors(flavorlist)
-    qt = _get_qualifier_decl(p.parser.ns, qname)
+    try:
+        qt = _qualcache[p.parser.ns][qname]
+    except KeyError:
+        #TODO fail gracefully
+        raise
+    flavors = _build_flavors(flavorlist, qt)
     if qval is None: 
         if qt.type == 'boolean':
             qval = True
@@ -536,7 +548,8 @@ def p_propertyDeclaration_5(p):
 def p_propertyDeclaration_6(p):
     """propertyDeclaration_6 : qualifierList dataType propertyName defaultValue ';'"""
     quals = dict([(x.name, x) for x in p[1]])
-    p[0] = pywbem.CIMProperty(p[3], p[4], type=p[2], qualifiers=quals)
+    p[0] = pywbem.CIMProperty(p[3], pywbem.tocimobj(p[2], p[4]), 
+            type=p[2], qualifiers=quals)
 
 def p_propertyDeclaration_7(p):
     """propertyDeclaration_7 : qualifierList dataType propertyName array ';'"""
@@ -547,8 +560,8 @@ def p_propertyDeclaration_7(p):
 def p_propertyDeclaration_8(p):
     """propertyDeclaration_8 : qualifierList dataType propertyName array defaultValue ';'"""
     quals = dict([(x.name, x) for x in p[1]])
-    p[0] = pywbem.CIMProperty(p[3], p[5], type=p[2], qualifiers=quals,
-            is_array=True, array_size=p[4])
+    p[0] = pywbem.CIMProperty(p[3], pywbem.tocimobj(p[2], p[5]), 
+            type=p[2], qualifiers=quals, is_array=True, array_size=p[4])
 
 def p_referenceDeclaration(p):
     """referenceDeclaration : objectRef referenceName ';'
@@ -570,8 +583,8 @@ def p_referenceDeclaration(p):
         if len(p) == 5:
             dv = p[3]
     quals = dict([(x.name, x) for x in quals])
-    p[0] = pywbem.CIMProperty(pname, dv, type='ref', reference_class=cname, 
-            qualifiers=quals)
+    p[0] = pywbem.CIMProperty(pname, dv, type='reference', 
+            reference_class=cname, qualifiers=quals)
 
 def p_methodDeclaration(p):
     """methodDeclaration : dataType methodName '(' ')' ';'
@@ -679,7 +692,7 @@ def p_parameter_3(p):
     if len(p) == 4:
         args['is_array'] = True
         args['array_size'] = p[3]
-    p[0] = pywbem.CIMParameter(p[2], 'ref', reference_class=p[1], **args)
+    p[0] = pywbem.CIMParameter(p[2], 'reference', reference_class=p[1], **args)
 
 def p_parameter_4(p):
     """parameter_4 : qualifierList objectRef parameterName
@@ -690,8 +703,8 @@ def p_parameter_4(p):
         args['is_array'] = True
         args['array_size'] = p[4]
     quals = dict([(x.name, x) for x in p[1]])
-    p[0] = pywbem.CIMParameter(p[3], 'ref', qualifiers=quals, 
-                reference_class=p[1], **args)
+    p[0] = pywbem.CIMParameter(p[3], 'reference', qualifiers=quals, 
+                reference_class=p[2], **args)
 
 def p_parameterName(p):
     """parameterName : identifier"""
@@ -791,10 +804,14 @@ def p_qualifierDeclaration(p):
     p[0] = pywbem.CIMQualifierDeclaration(qualname, dt, value=value, 
                     is_array=is_array, array_size=array_size, 
                     scopes=scopes, **flavors)
-    _qual_cache[qualname] = p[0]
 
-def _build_flavors(flist):
+def _build_flavors(flist, qt=None):
     flavors = {}
+    if qt is not None:
+        flavors = {'overridable':qt.overridable,
+                   'translatable':qt.translatable,
+                   'toinstance':qt.toinstance,
+                   'tosubclass':qt.tosubclass}
     if 'disableoverride' in flist:
         flavors['overridable'] = False
     if 'enableoverride' in flist:
@@ -1040,20 +1057,11 @@ def find_column(input, token):
     column = (token.lexpos - i)+1
     return column
 
-_qual_cache = pywbem.NocaseDict()
 
-def _get_qualifier_decl(ns, qname):
-    try:
-        return _qual_cache[qname]
-    except KeyError:
-        qt = conn.GetQualifier(qname, ns)
-        _qual_cache[qt.name] = qt
-        return qt
-
-_lexer = lex.lex()
+#_lexer = lex.lex()
 #_parser = yacc.yacc()
-_parser = yacc.yacc(optimize=1)
-#_lexer = lex.lex(optimize=1)
+_parser = yacc.yacc(optimize=_optimize)
+_lexer = lex.lex(optimize=_optimize)
 def compile_string(mof, ns, filename=None):
     #parser = yacc.yacc()
     parser = _parser
@@ -1101,6 +1109,17 @@ if __name__ == '__main__':
 #    if options.ns not in nss:
 #        conn.CreateNamespace(options.ns)
 
+    conn = pywbem.WBEMConnection('https://localhost', ('',''))
+    conn = pywbem.PegasusUDSConnection()
+    #conn.debug = True
+    conn.default_namespace = options.ns
+
+    # TODO move this to some class .init()
+    # TODO create namespace if not exist
+    _qualcache[options.ns] = pywbem.NocaseDict()
+    for qual in conn.EnumerateQualifiers(namespace=options.ns):
+        _qualcache[options.ns][qual.name] = qual
+
     for fname in args:
         if fname[0] != '/':
             fname = os.path.curdir + '/' + fname
@@ -1108,5 +1127,13 @@ if __name__ == '__main__':
     print 'qualifiers:', len(_quals)
     print 'classes:', len(_classes)
     print 'instances:', len(_insts)
+    #for qual in _quals.values():
+    #    #print qual.tomof()
+    #    conn.SetQualifier(qual)
+    #for klass in _classes.values():
+    #    print klass.tomof()
+    #    conn.CreateClass(klass)
+
+
 #    raw_input('press any key...')
 
