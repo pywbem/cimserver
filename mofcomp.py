@@ -198,6 +198,7 @@ def p_mp_createClass(p):
                     p.parser.mofcomp.compile_file(moffile, p.parser.ns)
                     fixedSuper = True
                 elif errcode in [pywbem.CIM_ERR_INVALID_PARAMETER,
+                                 pywbem.CIM_ERR_NOT_FOUND,
                                  pywbem.CIM_ERR_FAILED]:
                     if fixedRefs:
                         raise
@@ -246,6 +247,8 @@ def p_mp_createClass(p):
                             p.parser.mofcomp.compile_file(moffile, p.parser.ns)
                             p.parser.classnames[p.parser.ns].append(klass)
                     fixedRefs = True
+                else:
+                    raise
     
     except pywbem.CIMError, ce:
         if ce.args[0] != pywbem.CIM_ERR_ALREADY_EXISTS:
