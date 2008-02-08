@@ -24,6 +24,7 @@ import pywbem
 from pywbem import tupleparse
 import cimserver
 from cStringIO import StringIO
+import sys
 
 cxd = None
 
@@ -77,6 +78,8 @@ class MyRequestHandler(http.Request):
             descr = ''
             if len(arg.args) > 1:
                 descr = arg.args[1]
+            import traceback
+            traceback.print_exc(file=sys.stdout)
             print 'sending error', descr
             msg = """<?xml version="1.0" encoding="utf-8" ?>
                 <CIM CIMVERSION="2.0" DTDVERSION="2.0">

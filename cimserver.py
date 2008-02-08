@@ -106,11 +106,16 @@ class CIMServer(object):
         # TODO
         return None
     def CreateClass(self, *args, **kwargs):
-        # TODO
-        return None
-    def CreateInstance(self, *args, **kwargs):
         del kwargs['namespace']
-        cimdb.CreateInstance(*args, **kwargs)
+        cimdb.CreateClass(*args, **kwargs)
+
+    def CreateInstance(self, namespace, NewInstance):
+        cname = NewInstance.classname
+        provider = self._get_provider(namespace, cname, 
+                                      self.PROVIDERTYPE_INSTANCE)
+        cc = cimdb.GetClass(cname, namespace=namespace, LocalOnly=False, 
+                                IncludeQualifiers=True)
+        return provider.MI_createInstance(self.env, NewInstance)
     def DeleteClass(self, *args, **kwargs):
         # TODO
         return None
@@ -179,8 +184,8 @@ class CIMServer(object):
                     yield i
         
     def EnumerateQualifiers(self, *args, **kwargs):
-        # TODO
-        return None
+        for qual in cimdb.EnumerateQualifiers(*args, **kwargs):
+            yield qual
     def ExecQuery(self, *args, **kwargs):
         # TODO
         return None
@@ -244,6 +249,15 @@ class CIMXMLDispatch(object):
             inst.path.host = None
             inst.path.namespace = None
             output.write(inst.tocimxml().toxml().encode('utf8'))
+
+    def enumeratequalifiers(self, tt, output):
+        print 'tt[0]', tt[0]
+        ns = tt[2]
+        print 'ns:', `ns`
+        ipvs = dict([(str(k), v) for k, v in tt[3]])
+        print 'ipvs:', `ipvs`
+        for qual in cs.EnumerateQualifiers(namespace=ns):
+            output.write(qual.tocimxml().toxml().encode('utf8'))
 
     def enumerateclassnames(self, tt, output):
         ns = tt[2]
